@@ -1,0 +1,1123 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>剛好動圖所 (Kent GIF Studio) - 純前端影片動態圖轉檔工具</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- gifshot: 支援多執行緒 Web Worker 的純前端 GIF 編碼庫 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gifshot/0.3.2/gifshot.min.js"></script>
+  <!-- omggif: 純前端高效能 GIF 逐格解碼庫 -->
+  <script src="https://cdn.jsdelivr.net/npm/omggif@1.0.10/omggif.min.js"></script>
+  
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            creamBg: '#FDFBF7',
+            softWhite: '#FFFFFF',
+            mintGreen: '#7BC5AE',
+            mintGreenHover: '#69b09a',
+            peachPink: '#F39C82',
+            peachPinkHover: '#e0876c',
+            lavenderMist: '#A29BFE',
+            lavenderHover: '#8f88f0',
+            butterYellow: '#FEF6D8',
+            butterYellowBorder: '#F9E49B',
+            charcoal: '#3D3D3D',
+            oatGrey: '#7A7A7A',
+            mutedBorder: '#EFEAE2'
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif']
+          },
+          borderRadius: {
+            '2xl': '18px',
+            '3xl': '24px'
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* 雙向滑桿客製樣式 */
+    .slider-container {
+      position: relative;
+      height: 28px;
+    }
+    .slider-track {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      height: 8px;
+      width: 100%;
+      border-radius: 9999px;
+      background-color: #EFEAE2;
+      z-index: 1;
+    }
+    .slider-highlight {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      height: 8px;
+      border-radius: 9999px;
+      background-color: #F39C82;
+      z-index: 2;
+      transition: width 0.05s, left 0.05s;
+    }
+    .slider-input {
+      position: absolute;
+      pointer-events: none;
+      -webkit-appearance: none;
+      appearance: none;
+      z-index: 3;
+      height: 28px;
+      width: 100%;
+      background: none;
+      top: 0;
+      left: 0;
+      margin: 0;
+    }
+    .slider-input::-webkit-slider-thumb {
+      pointer-events: auto;
+      -webkit-appearance: none;
+      appearance: none;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background-color: #FFFFFF;
+      border: 3px solid #F39C82;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+      cursor: pointer;
+      transition: transform 0.15s ease;
+    }
+    .slider-input::-webkit-slider-thumb:hover {
+      transform: scale(1.15);
+    }
+    .slider-input::-moz-range-thumb {
+      pointer-events: auto;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background-color: #FFFFFF;
+      border: 3px solid #F39C82;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+      cursor: pointer;
+      transition: transform 0.15s ease;
+    }
+    /* 平滑過渡效果 */
+    .transition-card {
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    /* 點狀載入動畫 */
+    @keyframes pulseDot {
+      0%, 100% { opacity: 0.3; transform: scale(0.8); }
+      50% { opacity: 1; transform: scale(1.2); }
+    }
+    .pulse-dot {
+      animation: pulseDot 1.4s infinite ease-in-out both;
+    }
+  </style>
+</head>
+
+<body class="bg-creamBg text-charcoal min-h-screen flex flex-col font-sans antialiased selection:bg-mintGreen selection:text-white">
+  
+  <!-- 全域頂部導航 -->
+  <header class="w-full bg-softWhite border-b border-mutedBorder py-4 px-4 sm:px-8 sticky top-0 z-40 shadow-sm backdrop-blur-md bg-opacity-95">
+    <div class="max-w-4xl mx-auto flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <span class="text-3xl filter drop-shadow-sm select-none">🎬</span>
+        <div>
+          <h1 class="text-xl sm:text-2xl font-bold tracking-tight text-charcoal flex items-center gap-2">
+            剛好動圖所
+            <span class="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-mintGreen/15 text-mintGreen">Kent GIF Studio</span>
+          </h1>
+          <p class="text-xs text-oatGrey mt-0.5">純瀏覽器極速截取 · 零上傳顧隱私</p>
+        </div>
+      </div>
+      <div class="hidden sm:flex items-center text-xs text-oatGrey bg-creamBg px-3 py-1.5 rounded-full border border-mutedBorder gap-2">
+        <span class="inline-block w-2 h-2 rounded-full bg-mintGreen animate-pulse"></span>
+        100% 本地記憶體運算
+      </div>
+    </div>
+  </header>
+
+  <!-- 主內容容器 -->
+  <main class="flex-grow max-w-4xl w-full mx-auto px-4 sm:px-6 py-8 space-y-6">
+
+    <!-- 卡片一：載入本機影片與時間截取 -->
+    <section class="bg-softWhite rounded-3xl p-5 sm:p-7 border border-mutedBorder shadow-sm transition-card">
+      <div class="flex items-center justify-between mb-4 pb-2 border-b border-mutedBorder/60">
+        <div class="flex items-center space-x-2">
+          <span class="text-lg">📂</span>
+          <h2 class="text-lg font-bold text-charcoal">步驟一：載入影片或 GIF 動態圖</h2>
+        </div>
+        <span id="fileInfoBadge" class="hidden text-xs bg-gray-100 text-charcoal px-2.5 py-1 rounded-full font-medium"></span>
+      </div>
+
+      <!-- 拖曳上傳區 (尚未載入檔案時展示) -->
+      <div id="dropZone" class="border-2 border-dashed border-peachPink/50 hover:border-peachPink bg-[#FFFDFB] rounded-2xl p-8 sm:p-10 text-center cursor-pointer transition-all duration-200 group">
+        <input type="file" id="videoFileInput" accept="video/mp4,video/webm,video/ogg,video/quicktime,image/gif" class="hidden">
+        <div class="w-16 h-16 mx-auto mb-3 rounded-full bg-peachPink/15 flex items-center justify-center text-peachPink group-hover:scale-110 transition-transform">
+          <svg class="w-8 h-8" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+          </svg>
+        </div>
+        <p class="text-base font-semibold text-charcoal mb-1">點擊此處或拖曳影片或 GIF 動圖至此</p>
+        
+        <!-- 強化支援格式提示徽章 (新增 GIF 壓縮支援) -->
+        <div class="flex items-center justify-center gap-1.5 my-2.5 flex-wrap">
+          <span class="text-xs text-oatGrey font-medium">支援格式：</span>
+          <span class="text-xs font-semibold px-2 py-0.5 rounded-md bg-mintGreen/15 text-mintGreen border border-mintGreen/30">GIF 動圖 (.gif 壓縮/重設尺寸)</span>
+          <span class="text-xs font-semibold px-2 py-0.5 rounded-md bg-creamBg text-charcoal border border-mutedBorder">MP4 (.mp4 / H.264)</span>
+          <span class="text-xs font-semibold px-2 py-0.5 rounded-md bg-creamBg text-charcoal border border-mutedBorder">WebM (.webm)</span>
+          <span class="text-xs font-semibold px-2 py-0.5 rounded-md bg-creamBg text-charcoal border border-mutedBorder">QuickTime (.mov)</span>
+          <span class="text-xs font-semibold px-2 py-0.5 rounded-md bg-creamBg text-charcoal border border-mutedBorder">OGG (.ogg)</span>
+        </div>
+
+        <span class="inline-block text-[11px] font-medium text-peachPink bg-peachPink/10 px-3 py-1 rounded-full">
+          免上傳伺服器 · 支援影片剪輯轉 GIF · 亦可直接上傳現有 GIF 調整尺寸與大幅瘦身
+        </span>
+      </div>
+
+      <!-- 媒體播放器與剪輯控制區 (載入後顯現) -->
+      <div id="videoWorkspace" class="hidden space-y-5">
+        <!-- 媒體預覽視窗 (video 與 gifImage 共用) -->
+        <div class="relative w-full rounded-2xl overflow-hidden bg-black/5 flex items-center justify-center border border-mutedBorder min-h-[220px]">
+          <video id="videoPlayer" class="max-h-[380px] w-auto max-w-full rounded-2xl shadow-inner outline-none" playsinline controls></video>
+          <img id="gifPlayerPreview" class="hidden max-h-[380px] w-auto max-w-full rounded-2xl shadow-inner object-contain bg-white" alt="GIF 預覽">
+          <!-- 重新選擇按鈕 -->
+          <button id="rechooseBtn" type="button" class="absolute top-3 right-3 bg-white/90 hover:bg-white text-charcoal text-xs px-3 py-1.5 rounded-full shadow-md backdrop-blur border border-mutedBorder flex items-center gap-1 transition">
+            🔄 更換檔案
+          </button>
+        </div>
+
+        <!-- GIF 模式專屬提示卡 (若上傳的是 GIF 時顯示) -->
+        <div id="gifNoticeBox" class="hidden bg-lavenderMist/10 border border-lavenderMist/30 rounded-2xl p-4 flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <span class="text-2xl">🖼️</span>
+            <div>
+              <div class="text-xs font-bold text-charcoal flex items-center gap-2">
+                <span>GIF 動圖瘦身模式已就緒</span>
+                <span id="gifFrameCountBadge" class="text-[10px] bg-white text-lavenderMist font-bold px-2 py-0.5 rounded-md border border-lavenderMist/20">幀數分析中...</span>
+              </div>
+              <div class="text-[11px] text-oatGrey mt-0.5">您可以重設長寬解析度、套用抽幀壓縮演算法，或直接轉成更輕量的 WebP 格式！</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 時間截取雙向控制條 (影片專用) -->
+        <div id="videoTrimControls" class="bg-creamBg p-4 sm:p-5 rounded-2xl border border-mutedBorder space-y-4">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-1.5">
+              <span class="text-sm">⏱️</span>
+              <span class="text-sm font-bold text-charcoal">截取區間設定</span>
+            </div>
+            <div class="text-xs text-charcoal font-medium">
+              當前播放時間: <span id="currentTimeDisplay" class="font-mono text-peachPink font-bold">0.00s</span>
+            </div>
+          </div>
+
+          <!-- 雙向滑桿組件 -->
+          <div class="slider-container px-2">
+            <div class="slider-track"></div>
+            <div id="sliderHighlight" class="slider-highlight"></div>
+            <input type="range" id="startSlider" min="0" max="100" step="0.05" value="0" class="slider-input" aria-label="截取起點">
+            <input type="range" id="endSlider" min="0" max="100" step="0.05" value="100" class="slider-input" aria-label="截取終點">
+          </div>
+
+          <!-- 精確時間與「設為起點/終點」微調按鈕 -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+            <!-- 起點群組 -->
+            <div class="bg-white p-3 rounded-xl border border-mutedBorder flex items-center justify-between shadow-2xs">
+              <div class="flex items-center gap-2">
+                <span class="text-xs font-bold text-oatGrey">起點</span>
+                <input type="number" id="startTimeInput" step="0.1" min="0" class="w-20 px-2 py-1 text-sm font-mono font-bold text-charcoal bg-creamBg rounded border border-mutedBorder focus:border-peachPink outline-none">
+                <span class="text-xs text-oatGrey">秒</span>
+              </div>
+              <button id="setStartBtn" type="button" class="bg-peachPink hover:bg-peachPinkHover active:scale-95 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm transition">
+                設當前影格
+              </button>
+            </div>
+
+            <!-- 終點群組 -->
+            <div class="bg-white p-3 rounded-xl border border-mutedBorder flex items-center justify-between shadow-2xs">
+              <div class="flex items-center gap-2">
+                <span class="text-xs font-bold text-oatGrey">終點</span>
+                <input type="number" id="endTimeInput" step="0.1" min="0" class="w-20 px-2 py-1 text-sm font-mono font-bold text-charcoal bg-creamBg rounded border border-mutedBorder focus:border-peachPink outline-none">
+                <span class="text-xs text-oatGrey">秒</span>
+              </div>
+              <button id="setEndBtn" type="button" class="bg-peachPink hover:bg-peachPinkHover active:scale-95 text-white text-xs font-semibold px-3 py-1.5 rounded-lg shadow-sm transition">
+                設當前影格
+              </button>
+            </div>
+          </div>
+
+          <!-- 長度與安全閥值提醒氣泡 -->
+          <div id="durationNotice" class="flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs transition-colors duration-200">
+            <!-- 動態注入提示文字 -->
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 卡片二：匯出規格與加速設定 (含解析度、抽幀壓縮) -->
+    <section class="bg-softWhite rounded-3xl p-5 sm:p-7 border border-mutedBorder shadow-sm space-y-6">
+      <div class="flex items-center space-x-2 pb-2 border-b border-mutedBorder/60">
+        <span class="text-lg">⚙️</span>
+        <h2 class="text-lg font-bold text-charcoal">步驟二：匯出規格與壓縮尺寸配置</h2>
+      </div>
+
+      <!-- 設定網格 -->
+      <div class="space-y-5">
+        <!-- 1. 輸出格式 -->
+        <div>
+          <label class="block text-xs font-bold text-oatGrey uppercase tracking-wider mb-2">輸出檔案格式</label>
+          <div class="grid grid-cols-2 gap-3" id="formatRadioGroup">
+            <button type="button" data-format="gif" class="format-btn flex items-center justify-between px-4 py-3 rounded-2xl border-2 border-lavenderMist bg-lavenderMist/10 text-charcoal font-semibold text-sm transition">
+              <div class="flex items-center gap-2">
+                <span class="text-base">🎞️</span>
+                <span>GIF 動態圖</span>
+              </div>
+              <span class="text-xs px-2 py-0.5 rounded-md bg-white text-lavenderMist font-bold">高相容性</span>
+            </button>
+            <button type="button" data-format="webp" class="format-btn flex items-center justify-between px-4 py-3 rounded-2xl border-2 border-transparent bg-creamBg hover:bg-mutedBorder/50 text-charcoal font-semibold text-sm transition">
+              <div class="flex items-center gap-2">
+                <span class="text-base">🌐</span>
+                <span>Animated WebP</span>
+              </div>
+              <span class="text-xs px-2 py-0.5 rounded-md bg-white text-mintGreen font-bold">極致縮減 70%</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 2. 解析度與尺寸 (包含同原始影片長寬選項) -->
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <label class="block text-xs font-bold text-oatGrey uppercase tracking-wider">
+              輸出寬度與縮放比例 (自動依原比等比縮放)
+            </label>
+            <span id="originalDimensionLabel" class="text-xs text-oatGrey">原始尺寸: -</span>
+          </div>
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5" id="resRadioGroup">
+            <button type="button" data-width="360" class="res-btn py-2.5 px-3 rounded-xl border border-mutedBorder bg-white text-xs font-semibold text-charcoal hover:border-mintGreen transition">
+              360 px
+              <span class="block text-[10px] text-oatGrey font-normal">教材小圖 · 瘦身</span>
+            </button>
+            <button type="button" data-width="480" class="res-btn py-2.5 px-3 rounded-xl border-2 border-mintGreen bg-mintGreen/10 text-xs font-bold text-charcoal transition">
+              480 px
+              <span class="block text-[10px] text-mintGreen font-semibold">推薦標準</span>
+            </button>
+            <button type="button" data-width="640" class="res-btn py-2.5 px-3 rounded-xl border border-mutedBorder bg-white text-xs font-semibold text-charcoal hover:border-mintGreen transition">
+              640 px
+              <span class="block text-[10px] text-oatGrey font-normal">清晰大圖</span>
+            </button>
+            <!-- 同原始影片/GIF 長寬之選項 -->
+            <button type="button" data-width="original" class="res-btn py-2.5 px-3 rounded-xl border border-mutedBorder bg-white text-xs font-semibold text-charcoal hover:border-mintGreen transition flex flex-col items-center justify-center">
+              <span class="flex items-center gap-1 font-bold">
+                <span>同原始長寬</span>
+                <span class="text-[9px] bg-peachPink text-white px-1 rounded">100%</span>
+              </span>
+              <span id="origResSubtext" class="block text-[10px] text-oatGrey font-normal">1:1 原解析度</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 3. 壓縮強度 / 抽幀優化 與 平行加速 -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-bold text-oatGrey uppercase tracking-wider mb-2">壓縮強度與抽幀優化</label>
+            <div class="grid grid-cols-3 gap-2" id="compressionRadioGroup">
+              <button type="button" data-compression="light" class="comp-btn py-2 px-1 text-center rounded-xl border border-mutedBorder bg-white text-xs font-medium hover:border-mintGreen transition">
+                標準品質
+                <span class="text-[10px] text-oatGrey block">保留全影格</span>
+              </button>
+              <button type="button" data-compression="medium" class="comp-btn py-2 px-1 text-center rounded-xl border-2 border-mintGreen bg-mintGreen/10 text-xs font-bold text-charcoal transition">
+                均衡壓縮
+                <span class="text-[10px] text-mintGreen block">推薦平衡</span>
+              </button>
+              <button type="button" data-compression="heavy" class="comp-btn py-2 px-1 text-center rounded-xl border border-mutedBorder bg-white text-xs font-medium hover:border-mintGreen transition">
+                強力瘦身
+                <span class="text-[10px] text-oatGrey block">跳幀減重 50%</span>
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold text-oatGrey uppercase tracking-wider mb-2">多執行緒平行加速</label>
+            <div class="bg-creamBg border border-mutedBorder rounded-2xl p-2.5 flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="text-sm">⚡</span>
+                <div>
+                  <div class="text-xs font-bold text-charcoal">Web Workers 背景加速</div>
+                  <div class="text-[11px] text-oatGrey">防介面假死、極速量化編碼</div>
+                </div>
+              </div>
+              <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" id="workerToggle" checked class="sr-only peer">
+                <div class="w-11 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-mintGreen"></div>
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 主要執行轉換按鈕 -->
+      <div class="pt-2">
+        <button id="startConvertBtn" disabled type="button" class="w-full py-4 px-6 rounded-2xl bg-gray-200 text-gray-400 font-bold text-base shadow-sm flex items-center justify-center gap-2 cursor-not-allowed transition duration-200">
+          <span>🚀</span>
+          <span>請先載入檔案</span>
+        </button>
+      </div>
+
+      <!-- 運算進度條面板 (運算時展開) -->
+      <div id="progressCard" class="hidden bg-creamBg rounded-2xl p-5 border border-mutedBorder space-y-3">
+        <div class="flex items-center justify-between text-xs">
+          <div class="flex items-center gap-2">
+            <span class="inline-block w-2.5 h-2.5 rounded-full bg-mintGreen pulse-dot"></span>
+            <span id="progressStatusText" class="font-bold text-charcoal">正在準備影格...</span>
+          </div>
+          <span id="progressPercentage" class="font-mono font-bold text-mintGreen text-sm">0%</span>
+        </div>
+        <!-- 薄荷綠進度條條體 -->
+        <div class="w-full bg-softWhite h-3 rounded-full overflow-hidden border border-mutedBorder p-0.5">
+          <div id="progressBarFill" class="bg-mintGreen h-full rounded-full transition-all duration-150 w-0"></div>
+        </div>
+        <p class="text-[11px] text-oatGrey text-center">所有運算皆於您的瀏覽器本地進行，保護私密教學教材與個人隱私</p>
+      </div>
+    </section>
+
+    <!-- 卡片三：動圖生成完成與成果下載 (含容量節省對比) -->
+    <section id="resultCard" class="hidden bg-softWhite rounded-3xl p-5 sm:p-7 border-2 border-mintGreen/40 shadow-md space-y-6">
+      <div class="flex items-center justify-between pb-2 border-b border-mutedBorder/60">
+        <div class="flex items-center space-x-2">
+          <span class="text-xl">🎉</span>
+          <h2 class="text-lg font-bold text-charcoal">動圖生成與壓縮完畢！</h2>
+        </div>
+        <span id="compressionSavingsBadge" class="hidden text-xs px-2.5 py-1 rounded-full bg-peachPink/15 text-peachPink font-bold"></span>
+      </div>
+
+      <!-- 動態圖預覽容器 -->
+      <div class="flex flex-col items-center justify-center bg-creamBg rounded-2xl p-4 sm:p-6 border border-mutedBorder">
+        <img id="resultImagePreview" alt="生成的動態圖預覽" class="max-h-[420px] max-w-full rounded-xl shadow-sm object-contain bg-white">
+      </div>
+
+      <!-- 統計面版 (格式、尺寸、檔案容量及瘦身成效) -->
+      <div class="grid grid-cols-3 gap-2 sm:gap-4 text-center">
+        <div class="bg-creamBg p-3 rounded-2xl border border-mutedBorder">
+          <div class="text-[11px] text-oatGrey font-medium">檔案格式</div>
+          <div id="statFormat" class="text-sm sm:text-base font-bold text-charcoal mt-0.5">GIF</div>
+        </div>
+        <div class="bg-creamBg p-3 rounded-2xl border border-mutedBorder">
+          <div class="text-[11px] text-oatGrey font-medium">輸出解析度</div>
+          <div id="statDimensions" class="text-sm sm:text-base font-bold text-charcoal mt-0.5">480 × 270</div>
+        </div>
+        <div class="bg-creamBg p-3 rounded-2xl border border-mutedBorder">
+          <div class="text-[11px] text-oatGrey font-medium">檔案容量</div>
+          <div id="statFilesize" class="text-sm sm:text-base font-bold text-mintGreen mt-0.5">0.00 MB</div>
+          <div id="statOriginalSizeNote" class="text-[10px] text-oatGrey hidden mt-0.5"></div>
+        </div>
+      </div>
+
+      <!-- 一鍵下載按鈕 -->
+      <div class="flex flex-col sm:flex-row gap-3">
+        <a id="downloadButton" download="kent_studio_animation.gif" href="#" class="flex-1 py-3.5 px-6 rounded-2xl bg-mintGreen hover:bg-mintGreenHover active:scale-98 text-white font-bold text-center shadow-sm flex items-center justify-center gap-2 transition">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+          </svg>
+          <span>立即下載動態圖檔案</span>
+        </a>
+      </div>
+    </section>
+
+    <!-- 溫馨提示浮層 (自製 Modal，堅決不使用原生 alert) -->
+    <div id="customModal" class="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 hidden opacity-0 transition-opacity duration-200">
+      <div class="bg-white rounded-3xl max-w-sm w-full p-6 text-center shadow-xl transform scale-95 transition-transform duration-200" id="customModalBox">
+        <div id="modalIcon" class="text-4xl mb-3">💡</div>
+        <h3 id="modalTitle" class="text-lg font-bold text-charcoal mb-2">提示訊息</h3>
+        <p id="modalMessage" class="text-xs sm:text-sm text-oatGrey mb-5 leading-relaxed"></p>
+        <button id="modalCloseBtn" type="button" class="w-full py-2.5 rounded-xl bg-peachPink hover:bg-peachPinkHover text-white font-bold text-sm transition">
+          好，我知道了
+        </button>
+      </div>
+    </div>
+  </main>
+
+  <!-- 頁尾資訊與版權宣告 -->
+  <footer class="mt-auto border-t border-mutedBorder bg-softWhite py-6 px-4">
+    <div class="max-w-4xl mx-auto flex flex-col items-center text-center space-y-2">
+      <div class="text-sm font-medium text-charcoal">
+        Made with ❤️ by 
+        <a href="https://kentxchang.blogspot.tw" target="_blank" rel="noopener noreferrer" class="text-peachPink hover:text-peachPinkHover font-bold underline decoration-peachPink/50 underline-offset-4 hover:decoration-peachPink transition">
+          阿剛老師
+        </a>
+      </div>
+      <p class="text-xs text-oatGrey max-w-2xl leading-relaxed">
+        本工具採用 <strong>創用 CC 姓名標示-非商業性-相同方式分享 4.0 國際 (CC BY-NC-SA 4.0)</strong> 臺灣授權條款釋出。<br class="hidden sm:inline">
+        使用者得自由分享、重混及修改，惟須標示原作者來源，且不得用於商業營利目的；若衍生新作品，須以相同授權條款發布。
+      </p>
+    </div>
+  </footer>
+
+  <script>
+    // 應用程式狀態管理
+    const state = {
+      file: null,
+      fileType: 'video',  // 'video' | 'gif'
+      mediaBlobUrl: null,
+      duration: 0,
+      origWidth: 0,
+      origHeight: 0,
+      gifFramesData: null,
+      gifFrameCount: 0,
+      startTime: 0,
+      endTime: 0,
+      format: 'gif',         // 'gif' | 'webp'
+      resolution: 480,       // 360 | 480 | 640 | 'original'
+      compression: 'medium', // 'light' | 'medium' | 'heavy'
+      workers: 4,
+      isConverting: false,
+      resultBlob: null,
+      resultBlobUrl: null
+    };
+
+    // DOM 元素引用
+    const dropZone = document.getElementById('dropZone');
+    const videoFileInput = document.getElementById('videoFileInput');
+    const videoWorkspace = document.getElementById('videoWorkspace');
+    const videoPlayer = document.getElementById('videoPlayer');
+    const gifPlayerPreview = document.getElementById('gifPlayerPreview');
+    const gifNoticeBox = document.getElementById('gifNoticeBox');
+    const gifFrameCountBadge = document.getElementById('gifFrameCountBadge');
+    const videoTrimControls = document.getElementById('videoTrimControls');
+    const rechooseBtn = document.getElementById('rechooseBtn');
+    const fileInfoBadge = document.getElementById('fileInfoBadge');
+
+    const startSlider = document.getElementById('startSlider');
+    const endSlider = document.getElementById('endSlider');
+    const sliderHighlight = document.getElementById('sliderHighlight');
+    const startTimeInput = document.getElementById('startTimeInput');
+    const endTimeInput = document.getElementById('endTimeInput');
+    const setStartBtn = document.getElementById('setStartBtn');
+    const setEndBtn = document.getElementById('setEndBtn');
+    const currentTimeDisplay = document.getElementById('currentTimeDisplay');
+    const durationNotice = document.getElementById('durationNotice');
+
+    const originalDimensionLabel = document.getElementById('originalDimensionLabel');
+    const origResSubtext = document.getElementById('origResSubtext');
+    const workerToggle = document.getElementById('workerToggle');
+    const startConvertBtn = document.getElementById('startConvertBtn');
+
+    const progressCard = document.getElementById('progressCard');
+    const progressBarFill = document.getElementById('progressBarFill');
+    const progressPercentage = document.getElementById('progressPercentage');
+    const progressStatusText = document.getElementById('progressStatusText');
+
+    const resultCard = document.getElementById('resultCard');
+    const resultImagePreview = document.getElementById('resultImagePreview');
+    const statFormat = document.getElementById('statFormat');
+    const statDimensions = document.getElementById('statDimensions');
+    const statFilesize = document.getElementById('statFilesize');
+    const statOriginalSizeNote = document.getElementById('statOriginalSizeNote');
+    const compressionSavingsBadge = document.getElementById('compressionSavingsBadge');
+    const downloadButton = document.getElementById('downloadButton');
+
+    const customModal = document.getElementById('customModal');
+    const customModalBox = document.getElementById('customModalBox');
+    const modalTitle = document.getElementById('modalTitle');
+    const modalMessage = document.getElementById('modalMessage');
+    const modalIcon = document.getElementById('modalIcon');
+    const modalCloseBtn = document.getElementById('modalCloseBtn');
+
+    function showModal(title, message, icon = '💡') {
+      modalTitle.textContent = title;
+      modalMessage.textContent = message;
+      modalIcon.textContent = icon;
+      customModal.classList.remove('hidden');
+      setTimeout(() => {
+        customModal.classList.remove('opacity-0');
+        customModalBox.classList.remove('scale-95');
+      }, 10);
+    }
+
+    function closeModal() {
+      customModal.classList.add('opacity-0');
+      customModalBox.classList.add('scale-95');
+      setTimeout(() => {
+        customModal.classList.add('hidden');
+      }, 200);
+    }
+    modalCloseBtn.addEventListener('click', closeModal);
+    customModal.addEventListener('click', (e) => {
+      if (e.target === customModal) closeModal();
+    });
+
+    function formatSec(sec) {
+      return Number(sec).toFixed(2);
+    }
+
+    function formatBytes(bytes) {
+      if (!bytes || bytes === 0) return '0 Bytes';
+      const k = 1024;
+      const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    function revokePreviousUrl() {
+      if (state.mediaBlobUrl) {
+        URL.revokeObjectURL(state.mediaBlobUrl);
+        state.mediaBlobUrl = null;
+      }
+      if (state.resultBlobUrl) {
+        URL.revokeObjectURL(state.resultBlobUrl);
+        state.resultBlobUrl = null;
+      }
+    }
+
+    // 統一處理媒體檔案（影片或 GIF）
+    async function handleMediaFile(file) {
+      if (!file) return;
+
+      const isGif = file.type === 'image/gif' || file.name.toLowerCase().endsWith('.gif');
+      const isVideo = file.type.startsWith('video/') || /\.(mp4|webm|mov|ogg)$/i.test(file.name);
+
+      if (!isGif && !isVideo) {
+        showModal('檔案格式不支援', '請選擇常見影片格式（MP4、WebM、MOV）或 GIF 動圖檔案。', '⚠️');
+        return;
+      }
+
+      revokePreviousUrl();
+      state.file = file;
+      state.fileType = isGif ? 'gif' : 'video';
+      state.mediaBlobUrl = URL.createObjectURL(file);
+
+      fileInfoBadge.textContent = `${file.name} (${formatBytes(file.size)})`;
+      fileInfoBadge.classList.remove('hidden');
+
+      dropZone.classList.add('hidden');
+      videoWorkspace.classList.remove('hidden');
+      resultCard.classList.add('hidden');
+
+      if (isGif) {
+        // GIF 模式
+        videoPlayer.classList.add('hidden');
+        videoPlayer.pause();
+        gifPlayerPreview.src = state.mediaBlobUrl;
+        gifPlayerPreview.classList.remove('hidden');
+        gifNoticeBox.classList.remove('hidden');
+        videoTrimControls.classList.add('hidden');
+
+        gifFrameCountBadge.textContent = '正在解析動圖結構...';
+
+        // 讀取 GIF 原始尺寸與影格數量
+        try {
+          const buffer = await file.arrayBuffer();
+          const GifReaderClass = window.GifReader || (window.omggif && window.omggif.GifReader);
+          if (!GifReaderClass) {
+            throw new Error('GIF 解碼核心尚未載入完成');
+          }
+          const reader = new GifReaderClass(new Uint8Array(buffer));
+          state.origWidth = reader.width;
+          state.origHeight = reader.height;
+          state.gifFrameCount = reader.numFrames();
+          state.gifReader = reader;
+
+          // 計算預估總秒數
+          let totalDurationMs = 0;
+          for (let f = 0; f < state.gifFrameCount; f++) {
+            const frameInfo = reader.frameInfo(f);
+            totalDurationMs += (frameInfo.delay || 10) * 10;
+          }
+          state.duration = totalDurationMs / 1000;
+
+          gifFrameCountBadge.textContent = `${state.gifFrameCount} 個影格 (約 ${state.duration.toFixed(1)} 秒)`;
+          originalDimensionLabel.textContent = `原始尺寸: ${state.origWidth} × ${state.origHeight} px`;
+          origResSubtext.textContent = `${state.origWidth} × ${state.origHeight}`;
+          
+          enableConvertButton('開始壓縮並輸出動圖');
+        } catch (err) {
+          // 若無法完整解析，降級使用 Image 標籤讀取長寬
+          const img = new Image();
+          img.onload = () => {
+            state.origWidth = img.naturalWidth;
+            state.origHeight = img.naturalHeight;
+            originalDimensionLabel.textContent = `原始尺寸: ${state.origWidth} × ${state.origHeight} px`;
+            origResSubtext.textContent = `${state.origWidth} × ${state.origHeight}`;
+            gifFrameCountBadge.textContent = '動圖已載入';
+            enableConvertButton('開始壓縮並輸出動圖');
+          };
+          img.src = state.mediaBlobUrl;
+        }
+
+      } else {
+        // 影片模式
+        gifPlayerPreview.classList.add('hidden');
+        gifNoticeBox.classList.add('hidden');
+        videoTrimControls.classList.remove('hidden');
+        videoPlayer.classList.remove('hidden');
+
+        videoPlayer.src = state.mediaBlobUrl;
+        videoPlayer.load();
+      }
+    }
+
+    // 監聽影片 metadata 載入
+    videoPlayer.addEventListener('loadedmetadata', () => {
+      state.duration = videoPlayer.duration;
+      state.origWidth = videoPlayer.videoWidth;
+      state.origHeight = videoPlayer.videoHeight;
+
+      originalDimensionLabel.textContent = `原始尺寸: ${state.origWidth} × ${state.origHeight} px`;
+      origResSubtext.textContent = `${state.origWidth} × ${state.origHeight}`;
+
+      state.startTime = 0;
+      state.endTime = Math.min(3, state.duration);
+
+      startSlider.max = state.duration;
+      endSlider.max = state.duration;
+
+      updateSliderUI();
+      enableConvertButton('開始轉出動圖');
+    });
+
+    videoPlayer.addEventListener('timeupdate', () => {
+      currentTimeDisplay.textContent = formatSec(videoPlayer.currentTime) + 's';
+    });
+
+    function updateSliderUI() {
+      const sVal = parseFloat(state.startTime);
+      const eVal = parseFloat(state.endTime);
+      const max = state.duration || 100;
+
+      startSlider.value = sVal;
+      endSlider.value = eVal;
+
+      startTimeInput.value = formatSec(sVal);
+      endTimeInput.value = formatSec(eVal);
+
+      const leftPercent = (sVal / max) * 100;
+      const rightPercent = (eVal / max) * 100;
+      sliderHighlight.style.left = `${leftPercent}%`;
+      sliderHighlight.style.width = `${Math.max(0, rightPercent - leftPercent)}%`;
+
+      const diff = Math.max(0, eVal - sVal);
+      if (diff > 10) {
+        durationNotice.className = 'flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs bg-butterYellow text-charcoal border border-butterYellowBorder';
+        durationNotice.innerHTML = `
+          <div class="flex items-center gap-1.5 font-medium">
+            <span>⚠️</span>
+            <span>截取長度為 <strong>${diff.toFixed(1)} 秒</strong>（超過建議 10 秒），產生的動圖檔案體積可能偏大。</span>
+          </div>
+          <span class="text-[10px] text-oatGrey font-bold">建議縮減</span>
+        `;
+      } else {
+        durationNotice.className = 'flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs bg-white text-charcoal border border-mutedBorder';
+        durationNotice.innerHTML = `
+          <div class="flex items-center gap-1.5 font-medium">
+            <span>✨</span>
+            <span>目前選取區間：<strong>${diff.toFixed(1)} 秒</strong>（落在最佳推薦長度內，輕巧流暢）</span>
+          </div>
+          <span class="text-[10px] text-mintGreen font-bold">品質最佳</span>
+        `;
+      }
+    }
+
+    startSlider.addEventListener('input', (e) => {
+      let val = parseFloat(e.target.value);
+      if (val >= state.endTime) {
+        val = Math.max(0, state.endTime - 0.1);
+      }
+      state.startTime = val;
+      videoPlayer.currentTime = val;
+      updateSliderUI();
+    });
+
+    endSlider.addEventListener('input', (e) => {
+      let val = parseFloat(e.target.value);
+      if (val <= state.startTime) {
+        val = Math.min(state.duration, state.startTime + 0.1);
+      }
+      state.endTime = val;
+      videoPlayer.currentTime = val;
+      updateSliderUI();
+    });
+
+    startTimeInput.addEventListener('change', (e) => {
+      let val = Math.max(0, Math.min(parseFloat(e.target.value) || 0, state.endTime - 0.1));
+      state.startTime = val;
+      videoPlayer.currentTime = val;
+      updateSliderUI();
+    });
+
+    endTimeInput.addEventListener('change', (e) => {
+      let val = Math.min(state.duration, Math.max(parseFloat(e.target.value) || 0, state.startTime + 0.1));
+      state.endTime = val;
+      videoPlayer.currentTime = val;
+      updateSliderUI();
+    });
+
+    setStartBtn.addEventListener('click', () => {
+      const cur = videoPlayer.currentTime;
+      state.startTime = cur < state.endTime ? cur : Math.max(0, state.endTime - 0.1);
+      updateSliderUI();
+    });
+
+    setEndBtn.addEventListener('click', () => {
+      const cur = videoPlayer.currentTime;
+      state.endTime = cur > state.startTime ? cur : Math.min(state.duration, state.startTime + 0.1);
+      updateSliderUI();
+    });
+
+    dropZone.addEventListener('click', () => videoFileInput.click());
+    rechooseBtn.addEventListener('click', () => videoFileInput.click());
+
+    videoFileInput.addEventListener('change', (e) => {
+      if (e.target.files && e.target.files[0]) {
+        handleMediaFile(e.target.files[0]);
+      }
+    });
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+      dropZone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.add('border-peachPink', 'bg-peachPink/10');
+      }, false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+      dropZone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.remove('border-peachPink', 'bg-peachPink/10');
+      }, false);
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+      const dt = e.dataTransfer;
+      if (dt.files && dt.files[0]) {
+        handleMediaFile(dt.files[0]);
+      }
+    });
+
+    // 格式切換
+    document.querySelectorAll('.format-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.format-btn').forEach(b => {
+          b.classList.remove('border-lavenderMist', 'bg-lavenderMist/10');
+          b.classList.add('border-transparent', 'bg-creamBg');
+        });
+        btn.classList.remove('border-transparent', 'bg-creamBg');
+        btn.classList.add('border-lavenderMist', 'bg-lavenderMist/10');
+        state.format = btn.dataset.format;
+      });
+    });
+
+    // 解析度切換 (含同原始尺寸選項)
+    document.querySelectorAll('.res-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.res-btn').forEach(b => {
+          b.classList.remove('border-2', 'border-mintGreen', 'bg-mintGreen/10', 'font-bold');
+          b.classList.add('border', 'border-mutedBorder', 'bg-white', 'font-semibold');
+        });
+        btn.classList.remove('border', 'border-mutedBorder', 'bg-white', 'font-semibold');
+        btn.classList.add('border-2', 'border-mintGreen', 'bg-mintGreen/10', 'font-bold');
+        state.resolution = btn.dataset.width === 'original' ? 'original' : parseInt(btn.dataset.width, 10);
+      });
+    });
+
+    // 壓縮強度切換
+    document.querySelectorAll('.comp-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.comp-btn').forEach(b => {
+          b.classList.remove('border-2', 'border-mintGreen', 'bg-mintGreen/10', 'font-bold');
+          b.classList.add('border', 'border-mutedBorder', 'bg-white');
+        });
+        btn.classList.remove('border', 'border-mutedBorder', 'bg-white');
+        btn.classList.add('border-2', 'border-mintGreen', 'bg-mintGreen/10', 'font-bold');
+        state.compression = btn.dataset.compression;
+      });
+    });
+
+    workerToggle.addEventListener('change', (e) => {
+      state.workers = e.target.checked ? (navigator.hardwareConcurrency || 4) : 1;
+    });
+
+    function enableConvertButton(text = '開始處理') {
+      startConvertBtn.disabled = false;
+      startConvertBtn.className = 'w-full py-4 px-6 rounded-2xl bg-mintGreen hover:bg-mintGreenHover active:scale-99 text-white font-bold text-base shadow-sm flex items-center justify-center gap-2 cursor-pointer transition duration-200';
+      startConvertBtn.innerHTML = `<span>🚀</span><span>${text}</span>`;
+    }
+
+    // 從現有 GIF 解碼每影格並等比縮放
+    async function extractGifFramesAndResize(reader, targetWidth, targetHeight, compressionMode, onProgress) {
+      const origW = reader.width;
+      const origH = reader.height;
+      const totalFrames = reader.numFrames();
+
+      // 決定抽幀步長 (壓縮策略)
+      let step = 1;
+      if (compressionMode === 'heavy' && totalFrames > 12) {
+        step = 2; // 強力瘦身：每隔 1 幀採樣一次，檔案容量減半
+      } else if (compressionMode === 'medium' && totalFrames > 35) {
+        step = 2;
+      }
+
+      // 底層合成畫布
+      const compCanvas = document.createElement('canvas');
+      compCanvas.width = origW;
+      compCanvas.height = origH;
+      const compCtx = compCanvas.getContext('2d');
+
+      // 目標解析度畫布
+      const targetCanvas = document.createElement('canvas');
+      targetCanvas.width = targetWidth;
+      targetCanvas.height = targetHeight;
+      const targetCtx = targetCanvas.getContext('2d');
+
+      const pixelBuffer = new Uint8ClampedArray(origW * origH * 4);
+      const frames = [];
+      let totalDelayMs = 0;
+      let sampledCount = 0;
+
+      for (let i = 0; i < totalFrames; i++) {
+        const frameInfo = reader.frameInfo(i);
+        const delay = (frameInfo.delay || 10) * 10;
+        reader.decodeAndBlitFrameRGBA(i, pixelBuffer);
+
+        if (i % step === 0) {
+          const imgData = new ImageData(pixelBuffer, origW, origH);
+          compCtx.putImageData(imgData, 0, 0);
+
+          targetCtx.clearRect(0, 0, targetWidth, targetHeight);
+          targetCtx.drawImage(compCanvas, 0, 0, targetWidth, targetHeight);
+
+          frames.push(targetCanvas.toDataURL('image/png'));
+          totalDelayMs += delay * step;
+          sampledCount++;
+        }
+
+        if (onProgress) {
+          onProgress(Math.min(0.5, ((i + 1) / totalFrames) * 0.5));
+        }
+      }
+
+      const calculatedInterval = Math.max(0.04, (totalDelayMs / sampledCount) / 1000);
+      return { frames, interval: calculatedInterval };
+    }
+
+    // 逐格擷取影片影格
+    async function extractVideoFrames(videoSrc, startTime, duration, targetWidth, targetHeight, compressionMode, onProgress) {
+      return new Promise((resolve, reject) => {
+        const tempVideo = document.createElement('video');
+        tempVideo.crossOrigin = 'anonymous';
+        tempVideo.src = videoSrc;
+        tempVideo.muted = true;
+        tempVideo.playsInline = true;
+
+        const canvas = document.createElement('canvas');
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+        // 依壓縮等級決定 FPS
+        let fps = 12;
+        if (compressionMode === 'light') fps = 15;
+        if (compressionMode === 'heavy') fps = 8;
+
+        const totalFrames = Math.max(1, Math.round(duration * fps));
+        const frameInterval = 1 / fps;
+        let currentFrameIndex = 0;
+        const frames = [];
+
+        tempVideo.onloadedmetadata = () => {
+          tempVideo.currentTime = startTime;
+        };
+
+        tempVideo.onerror = () => {
+          reject(new Error('影片影格載入失敗'));
+        };
+
+        tempVideo.onseeked = () => {
+          ctx.drawImage(tempVideo, 0, 0, targetWidth, targetHeight);
+          frames.push(canvas.toDataURL('image/png'));
+
+          currentFrameIndex++;
+          if (onProgress) {
+            onProgress(Math.min(0.5, (currentFrameIndex / totalFrames) * 0.5));
+          }
+
+          if (currentFrameIndex < totalFrames) {
+            tempVideo.currentTime = Math.min(startTime + duration, startTime + currentFrameIndex * frameInterval);
+          } else {
+            tempVideo.src = '';
+            resolve({ frames, interval: frameInterval });
+          }
+        };
+      });
+    }
+
+    // 開始轉換與壓縮
+    startConvertBtn.addEventListener('click', async () => {
+      if (!state.file || state.isConverting) return;
+
+      state.isConverting = true;
+      startConvertBtn.disabled = true;
+      startConvertBtn.classList.add('opacity-60', 'cursor-wait');
+
+      progressCard.classList.remove('hidden');
+      resultCard.classList.add('hidden');
+      progressBarFill.style.width = '0%';
+      progressPercentage.textContent = '0%';
+      progressStatusText.textContent = '正在分析並提取影格...';
+
+      // 計算目標寬高 (若選「同原始長寬」，直接採用原始像素尺寸)
+      let targetW, targetH;
+      if (state.resolution === 'original') {
+        targetW = state.origWidth;
+        targetH = state.origHeight;
+      } else {
+        targetW = parseInt(state.resolution, 10);
+        const aspect = state.origHeight / state.origWidth;
+        targetH = Math.round(targetW * aspect);
+      }
+
+      // 確保偶數尺寸以避免壓縮問題
+      if (targetW % 2 !== 0) targetW += 1;
+      if (targetH % 2 !== 0) targetH += 1;
+
+      try {
+        let extractedData;
+
+        if (state.fileType === 'gif') {
+          // GIF 模式：透過 omggif 讀取影格並重設尺寸與抽幀
+          extractedData = await extractGifFramesAndResize(
+            state.gifReader,
+            targetW,
+            targetH,
+            state.compression,
+            (progress) => {
+              const pct = Math.round(progress * 100);
+              progressBarFill.style.width = `${pct}%`;
+              progressPercentage.textContent = `${pct}%`;
+              progressStatusText.textContent = `解析 GIF 影格與重設尺寸 (${pct}%)...`;
+            }
+          );
+        } else {
+          // 影片模式
+          const duration = state.endTime - state.startTime;
+          if (duration <= 0.1) {
+            showModal('選取區間過短', '截取長度請至少大於 0.2 秒。', '⏱️');
+            resetConversionUI();
+            return;
+          }
+          extractedData = await extractVideoFrames(
+            state.mediaBlobUrl,
+            state.startTime,
+            duration,
+            targetW,
+            targetH,
+            state.compression,
+            (progress) => {
+              const pct = Math.round(progress * 100);
+              progressBarFill.style.width = `${pct}%`;
+              progressPercentage.textContent = `${pct}%`;
+              progressStatusText.textContent = `擷取影片影格中 (${pct}%)...`;
+            }
+          );
+        }
+
+        progressStatusText.textContent = '調色盤量化與多執行緒背景編碼中...';
+
+        // 色彩取樣品質（根據壓縮等級最佳化）
+        let sampleInterval = 10;
+        if (state.compression === 'heavy') sampleInterval = 15;
+        if (state.compression === 'light') sampleInterval = 5;
+
+        gifshot.createGIF({
+          images: extractedData.frames,
+          gifWidth: targetW,
+          gifHeight: targetH,
+          interval: extractedData.interval,
+          sampleInterval: sampleInterval,
+          numWorkers: state.workers,
+          progressCallback: (encodeProgress) => {
+            const totalPct = Math.round(50 + encodeProgress * 50);
+            progressBarFill.style.width = `${totalPct}%`;
+            progressPercentage.textContent = `${totalPct}%`;
+            progressStatusText.textContent = `編碼壓縮進度 (${totalPct}%)...`;
+          }
+        }, function(obj) {
+          if (!obj.error) {
+            handleConversionSuccess(obj.image, targetW, targetH);
+          } else {
+            showModal('轉檔發生錯誤', '產生動圖時失敗，請重試或微調解析度設定。', '❌');
+            resetConversionUI();
+          }
+        });
+
+      } catch (err) {
+        showModal('運算中斷', '讀取或擷取失敗：' + (err.message || '未知錯誤'), '❌');
+        resetConversionUI();
+      }
+    });
+
+    function handleConversionSuccess(base64Uri, width, height) {
+      fetch(base64Uri)
+        .then(res => res.blob())
+        .then(blob => {
+          if (state.resultBlobUrl) {
+            URL.revokeObjectURL(state.resultBlobUrl);
+          }
+          state.resultBlob = blob;
+          state.resultBlobUrl = URL.createObjectURL(blob);
+
+          resultImagePreview.src = state.resultBlobUrl;
+
+          const isWebP = state.format === 'webp';
+          statFormat.textContent = isWebP ? 'Animated WebP' : 'GIF 動圖';
+          statDimensions.textContent = `${width} × ${height} px`;
+          statFilesize.textContent = formatBytes(blob.size);
+
+          // 計算檔案大小瘦身率（特別在處理現有 GIF 時）
+          if (state.file && state.file.size) {
+            const origSize = state.file.size;
+            const newSize = blob.size;
+            statOriginalSizeNote.textContent = `原檔：${formatBytes(origSize)}`;
+            statOriginalSizeNote.classList.remove('hidden');
+
+            if (newSize < origSize) {
+              const savedPct = Math.round(((origSize - newSize) / origSize) * 100);
+              compressionSavingsBadge.textContent = `🎉 體積瘦身 ${savedPct}%`;
+              compressionSavingsBadge.classList.remove('hidden');
+            } else {
+              compressionSavingsBadge.classList.add('hidden');
+            }
+          }
+
+          const baseName = (state.file.name || 'animation').replace(/\.[^/.]+$/, "");
+          const extension = isWebP ? 'webp' : 'gif';
+          downloadButton.href = state.resultBlobUrl;
+          downloadButton.download = `${baseName}_resized_${width}x${height}.${extension}`;
+
+          progressCard.classList.add('hidden');
+          resultCard.classList.remove('hidden');
+          resultCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+          resetConversionUI();
+        });
+    }
+
+    function resetConversionUI() {
+      state.isConverting = false;
+      startConvertBtn.disabled = false;
+      startConvertBtn.classList.remove('opacity-60', 'cursor-wait');
+      startConvertBtn.innerHTML = `<span>🚀</span><span>再次轉出動圖</span>`;
+    }
+  </script>
+</body>
+</html>
